@@ -15,7 +15,7 @@ int main(int argc, char *argv[])
     const std::string command = argv[1];
     if (command.compare("distort") != 0 && command.compare("restore") != 0)
     {
-        fprintf(stderr, "Usage: %s distort|restore path/to/file\n", argv[0]);
+        fprintf(stderr, "Usage: %s distort|restore path/to/source path/to/destination\n", argv[0]);
         exit(1);
     }
 
