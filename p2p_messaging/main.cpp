@@ -1,96 +1,87 @@
-#include <iostream>
+//
+// server.cpp
+// ~~~~~~~~~~
+//
+// Copyright (c) 2003-2023 Christopher M. Kohlhoff (chris at kohlhoff dot com)
+//
+// Distributed under the Boost Software License, Version 1.0. (See accompanying
+// file LICENSE_1_0.txt or copy at http://www.boost.org/LICENSE_1_0.txt)
+//
+
+#include <array>
 #include <boost/asio.hpp>
+#include <ctime>
+#include <iostream>
+#include <string>
 
-using boost::asio::ip::tcp;
-int main(int argc, char **argv)
-{
-    std::cout << "Hello world" << std::endl;
+using boost::asio::ip::udp;
 
-    try
-    {
-        std::string command = argc >= 2 ? argv[1] : "client";
-        if (command == "server")
-        {
+int main(int argc, char *argv[]) {
+  if (argc != 3) {
+    printf("Usage: %s <receive port> <send port>\n", argv[0]);
+    return 1;
+  }
+  int receive_port = std::atoi(argv[1]);
+  int send_port = std::atoi(argv[2]);
 
-            boost::asio::io_service io_service;
-            tcp::acceptor acceptor(io_service, tcp::endpoint(tcp::v4(), 12345));
-            tcp::socket socket(io_service);
-            acceptor.accept(socket);
-            printf("Connected from client\n");
+  bool working = true;
 
-            for (;;)
-            {
-                std::vector<char> buffer;
+  auto receive_thread = std::thread([&working, receive_port]() {
+    try {
+      boost::asio::io_context io_context;
 
-                // Trying to read from socket
-                auto read_available = socket.available();
-                if (read_available > 0)
-                {
-                    boost::asio::read(socket, boost::asio::buffer(buffer.data(), 1024));
-                    std::string message(buffer.data(), buffer.size());
-                    printf("Message: %s\n");
-                }
+      udp::socket socket(io_context, udp::endpoint(udp::v4(), receive_port));
+      typedef boost::asio::detail::socket_option::integer<SOL_SOCKET,
+                                                          SO_RCVTIMEO>
+          rcv_timeout_option;
+      socket.set_option(rcv_timeout_option{200});
+      while (working) {
+        std::array<char, 1024> recv_buf;
+        udp::endpoint remote_endpoint;
 
-                std::promise<std::string> stdin_message;
-                std::thread stdin_read([&stdin_message]() {
-                    
-                })
-            }
-        }
-        else if (command == "client")
-        {
-            std::string host = "127.0.0.1";
-            int port = 12345;
-
-            boost::asio::io_service io_service;
-            tcp::resolver resolver(io_service);
-            tcp::resolver::query query(host, "12345");
-            tcp::resolver::iterator endpoint_iterator = resolver.resolve(query);
-
-            tcp::socket socket(io_service);
-            boost::asio::connect(socket, endpoint_iterator);
-
-            printf("Connected!\n");
-            boost::system::error_code error;
-            // auto bytes_sent = socket.write_some(boost::asio::buffer("Ping"), error);
-            // if (bytes_sent == 0)
-            // {
-            //     fprintf(stderr, "Error while sending bytes");
-            //     exit(1);
-            // }
-            // printf("Sent %d bytes\n", bytes_sent);
-
-            // char buf[128];
-            // auto bytes_received = socket.read_some(boost::asio::buffer(buf), error);
-            // printf("Received!\n");
-            // if (error == boost::asio::error::eof)
-            // {
-            //     printf("Closed by remote");
-            // }
-            // else if (error)
-            // {
-            //     throw boost::system::system_error(error);
-            // }
-            // printf("Received %d bytes\n", bytes_received);
-
-            // std::cout.write(buf, bytes_received);
-
-            for (;;)
-            {
-                std::string message;
-
-                std::getline(std::cin, message);
-                auto bytes_sent = socket.write_some(boost::asio::buffer(message));
-                printf("Sent %d bytes\n", bytes_sent);
-                auto bytes_received = socket.read_some(boost::asio::buffer(message));
-                printf("Received %d bytes, message: %s", bytes_received, message);
-            }
-        }
+        socket.receive_from(boost::asio::buffer(recv_buf), remote_endpoint);
+        std::string in_message(recv_buf.data());
+        std::cout << "Received message: " << in_message << std::endl;
+      }
+    } catch (std::exception &e) {
+      std::cerr << e.what() << std::endl;
     }
-    catch (std::exception &e)
-    {
-        std::cerr << e.what() << std::endl;
-    }
+  });
 
-    return 0;
+  auto send_thread = std::thread([&working, send_port]() {
+    try {
+      boost::system::error_code error;
+      boost::asio::io_context io_context;
+
+      udp::socket socket(io_context);
+      socket.open(udp::v4(), error);
+      if (error) {
+        std::cerr << "Error while open socket!" << std::endl;
+        return;
+      }
+      socket.set_option(udp::socket::reuse_address(true));
+      socket.set_option(boost::asio::socket_base::broadcast(true));
+      udp::endpoint endpoint(boost::asio::ip::address_v4::broadcast(),
+                             send_port);
+
+      while (working) {
+        std::string input;
+        std::getline(std::cin, input);
+        if (input == "quit") {
+          working = false;
+        } else {
+          std::cout << "Send messsage: " << input << std::endl;
+
+          socket.send_to(boost::asio::buffer(input), endpoint);
+        }
+      }
+    } catch (std::exception &e) {
+      std::cerr << e.what() << std::endl;
+    }
+  });
+
+  receive_thread.join();
+  send_thread.join();
+
+  return 0;
 }
