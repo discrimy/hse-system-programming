@@ -31,17 +31,19 @@ int main(int argc, char *argv[]) {
       boost::asio::io_context io_context;
 
       udp::socket socket(io_context, udp::endpoint(udp::v4(), receive_port));
-      typedef boost::asio::detail::socket_option::integer<SOL_SOCKET,
-                                                          SO_RCVTIMEO>
-          rcv_timeout_option;
-      socket.set_option(rcv_timeout_option{200});
       while (working) {
         std::array<char, 1024> recv_buf;
         udp::endpoint remote_endpoint;
 
-        socket.receive_from(boost::asio::buffer(recv_buf), remote_endpoint);
-        std::string in_message(recv_buf.data());
-        std::cout << "Received message: " << in_message << std::endl;
+        boost::asio::socket_base::bytes_readable command(true);
+        socket.io_control(command);
+        std::size_t bytes_readable = command.get();
+        if (bytes_readable > 0) {
+
+          socket.receive_from(boost::asio::buffer(recv_buf), remote_endpoint);
+          std::string in_message(recv_buf.data());
+          std::cout << "Received message: " << in_message << std::endl;
+        }
       }
     } catch (std::exception &e) {
       std::cerr << e.what() << std::endl;
@@ -67,7 +69,7 @@ int main(int argc, char *argv[]) {
       while (working) {
         std::string input;
         std::getline(std::cin, input);
-        if (input == "quit") {
+        if (input == "!quit") {
           working = false;
         } else {
           std::cout << "Send messsage: " << input << std::endl;
@@ -79,6 +81,9 @@ int main(int argc, char *argv[]) {
       std::cerr << e.what() << std::endl;
     }
   });
+
+  printf("Type message to send.\n");
+  printf("Type '!quit' to exit.\n");
 
   receive_thread.join();
   send_thread.join();
